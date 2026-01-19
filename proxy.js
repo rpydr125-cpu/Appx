@@ -19,19 +19,18 @@ app.get('/xstream', async (req, res) => {
     let content = response.data;
     const baseUrl = videoUrl.substring(0, videoUrl.lastIndexOf('/') + 1);
 
-    content = content.replace(/^(?!#)([^\s]+\.ts[^\s]*)/gm, seg => {
-      return `/xseg?url=${encodeURIComponent(baseUrl + seg)}`;
-    });
+    content = content.replace(/^(?!#)([^\s]+\.ts[^\s]*)/gm, s =>
+      `/xseg?url=${encodeURIComponent(baseUrl + s)}`
+    );
 
-    content = content.replace(/^(?!#)([^\s]+\.m3u8[^\s]*)/gm, list => {
-      return `/xstream?url=${encodeURIComponent(baseUrl + list)}`;
-    });
+    content = content.replace(/^(?!#)([^\s]+\.m3u8[^\s]*)/gm, p =>
+      `/xstream?url=${encodeURIComponent(baseUrl + p)}`
+    );
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
     res.send(content);
 
   } catch (e) {
-    console.error(e.message);
     res.status(500).send('Playlist load failed');
   }
 });
@@ -52,11 +51,9 @@ app.get('/xseg', async (req, res) => {
     res.setHeader('Content-Type', response.headers['content-type'] || 'video/mp2t');
     response.data.pipe(res);
 
-  } catch (e) {
-    console.error(e.message);
+  } catch {
     res.status(500).send('Segment load failed');
   }
 });
 
-module.exports = app;
-
+app.listen(3000, () => console.log("🌐 Proxy running on 3000"));
