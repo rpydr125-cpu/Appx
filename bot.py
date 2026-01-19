@@ -6,16 +6,15 @@ from threading import Thread
 from pyrogram import Client, filters
 from config import Config
 
-# Render Port Requirement ke liye Flask Setup
+# Render Port Binding
 app = Flask(__name__)
 @app.route('/')
-def health_check():
-    return "Bot is alive!"
+def health(): return "Bot is Running"
 
 def run_flask():
     app.run(host='0.0.0.0', port=10000)
 
-bot = Client("2gb_uploader", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN)
+bot = Client("uploader", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN)
 
 def humanbytes(size):
     if not size: return "0 B"
@@ -35,50 +34,39 @@ async def progress_func(current, total, text, message, start_time):
         except: pass
 
 @bot.on_message(filters.command("start"))
-async def start(client, message):
-    await message.reply_text("✅ **Bot Online!**\nSend me a `.txt` file containing m3u8 links.")
+async def start(c, m):
+    await m.reply_text("Send me a .txt file with m3u8 links.")
 
 @bot.on_message(filters.document)
-async def handle_document(client, message):
-    if not message.document.file_name.endswith(".txt"):
-        return
-
-    status = await message.reply_text("📥 Downloading text file...")
-    txt_path = await message.download()
+async def handle_txt(c, m):
+    if not m.document.file_name.endswith(".txt"): return
+    
+    status = await m.reply_text("📥 Downloading TXT...")
+    txt_path = await m.download()
     
     with open(txt_path, "r") as f:
         links = [line.strip() for line in f.readlines() if "http" in line]
 
     for i, link in enumerate(links):
         await status.edit(f"⏳ **Processing {i+1}/{len(links)}**")
-        
         final_url = f"{Config.PROXY_API}{link}"
-        output_file = f"video_{i}.mp4"
+        output = f"video_{int(time.time())}.mp4"
 
-        # FFmpeg Download
-        cmd = ["ffmpeg", "-i", final_url, "-c", "copy", "-bsf:a", "aac_adtstoasc", output_file, "-y"]
+        # FFmpeg Conversion
+        cmd = ["ffmpeg", "-i", final_url, "-c", "copy", "-bsf:a", "aac_adtstoasc", output, "-y"]
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        if os.path.exists(output_file):
-            start_time = time.time()
+        if os.path.exists(output):
+            start_t = time.time()
             try:
-                await client.send_video(
-                    chat_id=message.chat.id,
-                    video=output_file,
-                    caption=f"✅ **Video {i+1}**\n🔗 `{link}`",
-                    supports_streaming=True,
-                    progress=progress_func,
-                    progress_args=(f"📤 Uploading {i+1}...", status, start_time)
-                )
-            except Exception as e:
-                await message.reply_text(f"❌ Error: {e}")
-            os.remove(output_file) # Space bachane ke liye turant delete
-        else:
-            await message.reply_text(f"❌ Failed to download link {i+1}")
-
+                await c.send_video(m.chat.id, video=output, caption=f"✅ {link}", supports_streaming=True,
+                                 progress=progress_func, progress_args=(f"📤 Uploading {i+1}...", status, start_t))
+            except Exception as e: await m.reply_text(f"Error: {e}")
+            os.remove(output)
+    
     os.remove(txt_path)
     await status.delete()
 
 if __name__ == "__main__":
-    Thread(target=run_flask).start() # Flask background mein chalega
+    Thread(target=run_flask).start()
     bot.run()
