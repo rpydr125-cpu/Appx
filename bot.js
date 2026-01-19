@@ -2,47 +2,99 @@ require("dotenv").config();
 const { Telegraf } = require("telegraf");
 const fs = require("fs");
 const path = require("path");
-const { parseTxt } = require("./txtParser");
-const { downloadM3U8 } = require("./downloader");
+const fetch = (...a) => import("node-fetch").then(({default:f})=>f(...a));
+
+const { isAdmin, safeEdit } = require("./utils");
+const { parse } = require("./core/parser");
+const { loadQueue, saveQueue } = require("./core/queue");
+const { download } = require("./core/downloader");
+const { detectQuality } = require("./core/quality");
+const { makeName } = require("./core/namer");
+const { logFail } = require("./core/logger");
+
+if (!fs.existsSync("downloads")) fs.mkdirSync("downloads");
+if (!fs.existsSync("data")) fs.mkdirSync("data");
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-if (!fs.existsSync("downloads")) fs.mkdirSync("downloads");
+let QUEUE = loadQueue();
+let running = false;
+let stopped = false;
 
-bot.start(ctx => ctx.reply("✅ TXT uploader bot ready. Send me a .txt file"));
+async function worker(ctx) {
+  if (running) return;
+  running = true;
+  stopped = false;
 
-bot.on("document", async (ctx) => {
-  const file = ctx.message.document;
+  let status = await ctx.reply("🚀 Queue started");
 
-  if (!file.file_name.endsWith(".txt"))
-    return ctx.reply("❌ Please send only TXT file");
-
-  const link = await ctx.telegram.getFileLink(file.file_id);
-  const res = await fetch(link.href);
-  const buffer = await res.arrayBuffer();
-
-  const filePath = path.join(__dirname, file.file_name);
-  fs.writeFileSync(filePath, Buffer.from(buffer));
-
-  const links = parseTxt(filePath);
-  ctx.reply(`📄 Found ${links.length} links`);
-
-  for (let i = 0; i < links.length; i++) {
-    const raw = links[i];
-    const proxied = `${process.env.PROXY_URL}/xstream?url=${encodeURIComponent(raw)}`;
+  while (QUEUE.length && !stopped) {
+    const item = QUEUE[0];
+    const q = detectQuality(item.url);
+    status = await safeEdit(ctx, status, `⬇️ Processing left: ${QUEUE.length}\nQuality: ${q}`);
 
     try {
-      ctx.reply(`⬇️ Downloading ${i + 1}/${links.length}`);
-      const out = await downloadM3U8(proxied, "video_" + Date.now());
-      await ctx.replyWithVideo({ source: out });
+      const proxied = `${process.env.PROXY_URL}/xstream?url=${encodeURIComponent(item.url)}`;
+      const name = makeName(item.index, q);
+      const out = await download(proxied, name);
+      await ctx.replyWithVideo({ source: out }, { caption: `🎬 ${name}` });
       fs.unlinkSync(out);
-    } catch (e) {
-      ctx.reply("⚠️ Failed one link");
+    } catch {
+      logFail(item.url);
+      await ctx.reply("⚠️ Failed one link (logged)");
     }
+
+    QUEUE.shift();
+    saveQueue(QUEUE);
   }
 
+  running = false;
+  await ctx.reply(stopped ? "⏹ Queue stopped" : "✅ Queue finished");
+}
+
+bot.start(ctx => {
+  if (!isAdmin(ctx)) return ctx.reply("⛔ Admin only");
+  ctx.reply("😈 ULTRA TXT uploader ready\nCommands:\n/status\n/stop\n/resume\nSend TXT/CSV/JSON file");
+});
+
+bot.command("status", ctx => {
+  if (!isAdmin(ctx)) return;
+  ctx.reply(`📊 Queue: ${QUEUE.length}\nRunning: ${running}`);
+});
+
+bot.command("stop", ctx => {
+  if (!isAdmin(ctx)) return;
+  stopped = true;
+  ctx.reply("⏹ Stop signal sent");
+});
+
+bot.command("resume", ctx => {
+  if (!isAdmin(ctx)) return;
+  worker(ctx);
+});
+
+bot.on("document", async (ctx) => {
+  if (!isAdmin(ctx)) return ctx.reply("⛔ Access denied");
+
+  const file = ctx.message.document;
+  const link = await ctx.telegram.getFileLink(file.file_id);
+  const res = await fetch(link.href);
+  const buf = await res.arrayBuffer();
+
+  const filePath = path.join(__dirname, file.file_name);
+  fs.writeFileSync(filePath, Buffer.from(buf));
+
+  const links = parse(filePath);
   fs.unlinkSync(filePath);
+
+  const startIndex = QUEUE.length;
+  links.forEach((url, i) => QUEUE.push({ url, index: startIndex + i + 1 }));
+
+  saveQueue(QUEUE);
+  ctx.reply(`📥 Added ${links.length} links to queue`);
+
+  worker(ctx);
 });
 
 bot.launch();
-console.log("🤖 Bot started");
+console.log("🤖 ULTRA bot running");
