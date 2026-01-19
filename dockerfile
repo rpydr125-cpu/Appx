@@ -1,13 +1,11 @@
-FROM python:3.9-slim-buster
+FROM node:20
 
-# FFmpeg install karein
-RUN apt-get update && apt-get install -y ffmpeg
+RUN apt update && apt install -y ffmpeg
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+COPY package.json .
+RUN npm install
 
 COPY . .
 
-# Bot run karein
-CMD ["python3", "bot.py"]
+CMD ["npm", "start"]
