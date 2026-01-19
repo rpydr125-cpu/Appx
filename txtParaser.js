@@ -1,11 +1,17 @@
 const fs = require("fs");
 
-function parseTxt(filePath) {
-  const data = fs.readFileSync(filePath, "utf-8");
+function parse(file) {
+  const data = fs.readFileSync(file, "utf-8");
+
+  if (file.endsWith(".json")) {
+    const arr = JSON.parse(data);
+    return Array.isArray(arr) ? arr : [];
+  }
+
   return data
-    .split("\n")
-    .map(l => l.trim())
-    .filter(l => l.startsWith("http"));
+    .split(/\r?\n|,/)
+    .map(x => x.trim())
+    .filter(x => x.startsWith("http"));
 }
 
-module.exports = { parseTxt };
+module.exports = { parse };
