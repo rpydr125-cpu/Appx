@@ -1,18 +1,24 @@
 const { exec } = require("child_process");
 const path = require("path");
 
-function downloadM3U8(m3u8Url, outputName) {
-  return new Promise((resolve, reject) => {
-    const out = path.join(__dirname, "downloads", outputName + ".mp4");
-
-    const cmd = `ffmpeg -y -i "${m3u8Url}" -c copy -bsf:a aac_adtstoasc "${out}"`;
-
-    exec(cmd, (err) => {
-      if (err) reject(err);
-      else resolve(out);
-    });
+function run(cmd) {
+  return new Promise((res, rej) => {
+    exec(cmd, err => err ? rej(err) : res());
   });
 }
 
-module.exports = { downloadM3U8 };
+async function download(url, name, retry = 3) {
+  const out = path.join("downloads", name + ".mp4");
+  const cmd = `ffmpeg -y -i "${url}" -c copy -bsf:a aac_adtstoasc "${out}"`;
 
+  for (let i = 0; i <= retry; i++) {
+    try {
+      await run(cmd);
+      return out;
+    } catch {
+      if (i === retry) throw new Error("FFmpeg failed");
+    }
+  }
+}
+
+module.exports = { download };
